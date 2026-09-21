@@ -130,6 +130,19 @@ impl Scanner {
         // TODO(you): scan a number literal: digits, then a fractional part only when a digit
         //            follows the dot (1.4).
         // todo!("number")
+        let mut has_dot = false;
+        while !self.at_end() {
+            match self.peek() {
+                '.' => {
+                    if has_dot {
+                        self.error(self.line, "Invalid number"); ()
+                    } else { has_dot = true; }
+                    self.advance();
+                },
+                '0'..='9' => { self.advance(); },
+                _ => break,
+            };
+        }
         self.add(TokenType::Number);
     }
 

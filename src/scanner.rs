@@ -107,7 +107,7 @@ impl Scanner {
             '0'..='9' => self.number(),
             '_' | 'a'..='z' | 'A'..='Z' => self.identifier(),
 
-            _ => self.error(self.line, "Invalid token"),
+            _ => self.error(self.line, "Character is not part of any token."),
 
         }
 
@@ -134,10 +134,15 @@ impl Scanner {
         while !self.at_end() {
             match self.peek() {
                 '.' => {
-                    if has_dot {
-                        self.error(self.line, "Invalid number"); ()
-                    } else { has_dot = true; }
-                    self.advance();
+                    match self.peek_next() {
+                        '0'..='9' => {
+                            if has_dot {
+                                self.error(self.line, "Character is not part of any token."); return;
+                            } else { has_dot = true; }
+                            self.advance();
+                        }
+                        _ => { self.error(self.line, "Character is not part of any token.");  return; }
+                    }
                 },
                 '0'..='9' => { self.advance(); },
                 _ => break,

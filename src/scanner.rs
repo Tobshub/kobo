@@ -143,7 +143,11 @@ impl Scanner {
                 _ => break,
             }
         }
-        self.add(TokenType::Identifier);
+        let lexeme: String = self.src[self.start..self.current].iter().collect();
+        match keyword(lexeme.as_str()) {
+            Some(tt) => self.add(tt),
+            None => self.add(TokenType::Identifier),
+        }
     }
 
     // --- primitives ---------------------------------------------------------------

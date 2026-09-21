@@ -122,7 +122,21 @@ impl Scanner {
         //     if self.at_end() { self.line += 1; break; }
         //     if self.peek() == '\n' { self.line += 1; }
         // }
-        self.advance_until('"');
+        let mut terminated = false;
+        let mut line_offset = 0; // keep track of line offset separately in case of unterminated string error reporting
+        while !self.at_end() && !terminated {
+            match self.peek() {
+                '"' => { terminated = true; },
+                '\n' => line_offset += 1,
+                _ => (),
+            };
+            self.advance();
+        }
+        if !terminated {
+            self.error(self.line, "String is never closed.");
+            return;
+        }
+        self.line += line_offset;
         self.add(TokenType::Str);
     }
 

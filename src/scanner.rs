@@ -1,4 +1,4 @@
-use crate::token::{keyword, Token, TokenType};
+use crate::token::{keyword, Token, TokenType, one_line};
 
 /// Cut `source` into tokens. Returns everything it managed to scan alongside every
 /// error it found; the caller decides whether to go on.
@@ -32,6 +32,7 @@ impl Scanner {
         while !self.at_end() {
             self.scan_token();
         }
+        self.add(TokenType::Eof);
     }
 
     fn scan_token(&mut self) {
@@ -40,10 +41,76 @@ impl Scanner {
         //            not part of any token.' (5.1).
         // todo!("scan_token")
         // advance and collect + build token
-        while !self.at_end() && !self.matches(' ') && !self.matches('\t') && !self.matches('\r') && !self.matches('\n') {
-            self.advance();
+        // println!("top level peek: \"{}\"", one_line(self.peek().to_string().as_str()));
+        match self.advance() {
+            // whitespace
+            ' ' => (),
+            '\t' => (),
+            '\r' => (),
+            '\n' => self.line += 1,
+
+            '(' => self.add(TokenType::LParen),
+            ')' => self.add(TokenType::RParen),
+            '{' => self.add(TokenType::LBrace),
+            '}' => self.add(TokenType::RBrace),
+            ',' => self.add(TokenType::Comma),
+            ';' => self.add(TokenType::Semicolon),
+
+            '+' => self.add(TokenType::Plus),
+            '-' => self.add(TokenType::Minus),
+            '*' => self.add(TokenType::Star),
+            '/' => {
+                if self.peek() == '/' {
+                    self.advance_until('\n');
+                    // let lexeme: String = self.src[self.start..self.current].iter().collect();
+                    // println!("{}", one_line(self.peek().to_string().as_str()));
+                    // println!("{}", one_line(lexeme.as_str()));
+                } else {
+                    self.add(TokenType::Slash);
+                }
+            },
+
+            '!' => {
+                if self.peek_next() == '=' {
+                    self.advance();
+                    self.add(TokenType::BangEqual);
+                } else {
+                    self.add(TokenType::Bang);
+                }
+            },
+            '=' => {
+                if self.peek_next() == '=' {
+                    self.advance();
+                    self.add(TokenType::EqualEqual);
+                } else {
+                    self.add(TokenType::Equal);
+                }
+            },
+            '>' => {
+                if self.peek_next() == '=' {
+                    self.advance();
+                    self.add(TokenType::GreaterEqual);
+                } else {
+                    self.add(TokenType::Greater);
+                }
+            },
+            '<' => {
+                if self.peek_next() == '=' {
+                    self.advance();
+                    self.add(TokenType::LessEqual);
+                } else {
+                    self.add(TokenType::Less);
+                }
+            },
+
+            '"' => self.string(),
+            '0'..='9' => self.number(),
+            '_' | 'a'..='z' | 'A'..='Z' => self.identifier(),
+
+            _ => self.error(self.line, "Invalid token"),
+
         }
-        self.identifier();
+
         self.start = self.current;
     }
 
@@ -51,6 +118,11 @@ impl Scanner {
         // TODO(you): scan a string literal. A string may span lines (1.5); an unterminated one
         //            is reported at the line it opened on (5.1).
         // todo!("string")
+        // while self.advance() != '"' {
+        //     if self.at_end() { self.line += 1; break; }
+        //     if self.peek() == '\n' { self.line += 1; }
+        // }
+        self.advance_until('"');
         self.add(TokenType::Str);
     }
 
@@ -65,6 +137,12 @@ impl Scanner {
         // TODO(you): scan an identifier, then decide whether it is a keyword; keyword() in
         //            token.rs does the lookup (1.2, 1.3).
         // todo!("identifier")
+        while !self.at_end() {
+            match self.peek() {
+                '_' | 'a'..='z' | 'A'..='Z' | '0'..='9' =>   { self.advance(); },
+                _ => break,
+            }
+        }
         self.add(TokenType::Identifier);
     }
 
@@ -78,6 +156,14 @@ impl Scanner {
         let c = self.src[self.current];
         self.current += 1;
         c
+    }
+
+    fn advance_until(&mut self, expected: char) -> char {
+        while self.peek_next() != expected {
+            if self.at_end() { break; }
+            self.advance();
+        };
+        self.advance()
     }
 
     fn matches(&mut self, expected: char) -> bool {
@@ -105,9 +191,11 @@ impl Scanner {
     }
 
     fn add(&mut self, kind: TokenType) {
+        let lexeme = self.src[self.start..self.current].iter().collect();
+        // println!("\"{}\"", lexeme);
         self.tokens.push(Token {
             kind,
-            lexeme: self.src[self.start..self.current].iter().collect(),
+            lexeme,
             line: self.line,
         });
     }

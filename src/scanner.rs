@@ -40,7 +40,6 @@ impl Scanner {
         //            whitespace and comments, and an unrecognised character is 'Character is
         //            not part of any token.' (5.1).
         // todo!("scan_token")
-        // advance and collect + build token
         // println!("top level peek: \"{}\"", one_line(self.peek().to_string().as_str()));
         match self.advance() {
             // whitespace
@@ -61,10 +60,15 @@ impl Scanner {
             '*' => self.add(TokenType::Star),
             '/' => {
                 if self.peek() == '/' {
-                    self.advance_until('\n');
+                    while self.peek() != '\n' {
+                        if self.at_end() { return; }
+                        self.advance();
+                    };
+                    self.line += 1;
                     // let lexeme: String = self.src[self.start..self.current].iter().collect();
                     // println!("{}", one_line(self.peek().to_string().as_str()));
                     // println!("{}", one_line(lexeme.as_str()));
+                    self.advance();
                 } else {
                     self.add(TokenType::Slash);
                 }
@@ -194,14 +198,6 @@ impl Scanner {
         c
     }
 
-    fn advance_until(&mut self, expected: char) -> char {
-        while self.peek_next() != expected {
-            if self.at_end() { break; }
-            self.advance();
-        };
-        self.advance()
-    }
-
     fn matches(&mut self, expected: char) -> bool {
         if self.at_end() || self.src[self.current] != expected {
             return false;
@@ -227,6 +223,12 @@ impl Scanner {
     }
 
     fn add(&mut self, kind: TokenType) {
+        if kind == TokenType::Eof {
+            self.line = match self.tokens.last() {
+                None => 0,
+                Some(t) => t.line,
+            };
+        }
         let lexeme = self.src[self.start..self.current].iter().collect();
         // println!("\"{}\"", lexeme);
         self.tokens.push(Token {

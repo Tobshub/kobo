@@ -75,7 +75,7 @@ impl Scanner {
             },
 
             '!' => {
-                if self.peek_next() == '=' {
+                if self.peek() == '=' {
                     self.advance();
                     self.add(TokenType::BangEqual);
                 } else {
@@ -83,7 +83,7 @@ impl Scanner {
                 }
             },
             '=' => {
-                if self.peek_next() == '=' {
+                if self.peek() == '=' {
                     self.advance();
                     self.add(TokenType::EqualEqual);
                 } else {
@@ -91,7 +91,7 @@ impl Scanner {
                 }
             },
             '>' => {
-                if self.peek_next() == '=' {
+                if self.peek() == '=' {
                     self.advance();
                     self.add(TokenType::GreaterEqual);
                 } else {
@@ -99,7 +99,7 @@ impl Scanner {
                 }
             },
             '<' => {
-                if self.peek_next() == '=' {
+                if self.peek() == '=' {
                     self.advance();
                     self.add(TokenType::LessEqual);
                 } else {

@@ -152,18 +152,23 @@ impl Scanner {
         // TODO(you): scan a number literal: digits, then a fractional part only when a digit
         //            follows the dot (1.4).
         // todo!("number")
-        let mut has_dot = false;
-        while !self.at_end() {
+        'outer: while !self.at_end() {
             match self.peek() {
                 '.' => {
+                    // only advance if next character is valid
                     match self.peek_next() {
-                        '0'..='9' => {
-                            if has_dot {
-                                self.error(self.line, "Character is not part of any token."); return;
-                            } else { has_dot = true; }
-                            self.advance();
+                        '0'..='9' => self.advance(),
+                        _ => break,
+                    };
+                    // once we've seen one dot, only treat subsequent numbers as valid characters
+                    // break so match in scan_token handles anything after that
+                    while !self.at_end() {
+                        match self.peek() {
+                            '0'..='9' => {
+                                self.advance();
+                            },
+                            _ => break 'outer,
                         }
-                        _ => { self.error(self.line, "Character is not part of any token.");  return; }
                     }
                 },
                 '0'..='9' => { self.advance(); },

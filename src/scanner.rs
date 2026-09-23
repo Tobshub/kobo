@@ -60,15 +60,15 @@ impl Scanner {
             '*' => self.add(TokenType::Star),
             '/' => {
                 if self.peek() == '/' {
-                    while self.peek() != '\n' {
-                        if self.at_end() { return; }
+                    while self.peek() != '\n' && !self.at_end() {
                         self.advance();
                     };
-                    self.line += 1;
+                    // don't advance here, let's next scan_token call handle newlines
+                    // self.line += 1;
+                    // self.advance();
                     // let lexeme: String = self.src[self.start..self.current].iter().collect();
                     // println!("{}", one_line(self.peek().to_string().as_str()));
                     // println!("{}", one_line(lexeme.as_str()));
-                    self.advance();
                 } else {
                     self.add(TokenType::Slash);
                 }

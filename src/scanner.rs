@@ -32,6 +32,10 @@ impl Scanner {
         while !self.at_end() {
             self.scan_token();
         }
+        self.line = match self.tokens.last() {
+            None => 1,
+            Some(t) => t.line,
+        };
         self.add(TokenType::Eof);
     }
 
@@ -223,17 +227,11 @@ impl Scanner {
     }
 
     fn add(&mut self, kind: TokenType) {
-        if kind == TokenType::Eof {
-            self.line = match self.tokens.last() {
-                None => 0,
-                Some(t) => t.line,
-            };
-        }
-        let lexeme = self.src[self.start..self.current].iter().collect();
+        // let lexeme = self.src[self.start..self.current].iter().collect();
         // println!("\"{}\"", lexeme);
         self.tokens.push(Token {
             kind,
-            lexeme,
+            lexeme: self.src[self.start..self.current].iter().collect(),
             line: self.line,
         });
     }

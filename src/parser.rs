@@ -144,16 +144,32 @@ impl Parser {
 
     fn or(&mut self) -> Parsed<Expr> {
         // TODO(you): spec 3.2, one rung of the precedence ladder.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
-        self.and()
+        // todo!("or")
+
+        let mut expr = self.and()?;
+
+        while self.matches(&[TokenType::Or]) {
+            let op = self.previous();
+            let right = self.and()?;
+
+            expr = Expr::Logical{ left: Box::new(expr), op, right: Box::new(right) };
+        };
+        Ok(expr)
     }
 
     fn and(&mut self) -> Parsed<Expr> {
         // TODO(you): spec 3.2, one rung of the precedence ladder.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
-        self.equality()
+        // todo!("and")
+
+        let mut expr = self.equality()?;
+
+        while self.matches(&[TokenType::And]) {
+            let op = self.previous();
+            let right = self.equality()?;
+
+            expr = Expr::Logical{ left: Box::new(expr), op, right: Box::new(right) };
+        };
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Parsed<Expr> {

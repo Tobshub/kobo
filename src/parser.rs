@@ -137,9 +137,30 @@ impl Parser {
     fn assignment(&mut self) -> Parsed<Expr> {
         // TODO(you): spec 3.2. The left side parses as an ordinary expression and is checked
         //            afterwards, because the rule is not LL(1).
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
-        self.or()
+        // todo!("assignment")
+
+        let expr = self.or()?;
+
+        if self.matches(&[TokenType::Equal]) {
+            let equals = self.previous();
+            let value = self.assignment()?;
+
+            match expr {
+                Expr::Variable { name, .. } => {
+                    return Ok(Expr::Assign {
+                        name,
+                        value: Box::new(value),
+                        at: Resolved::Global,
+                    });
+                }
+                other => {
+                    self.error_at(&equals, "Cannot assign to this expression.");
+                    return Ok(other);
+                }
+            }
+        }
+
+        Ok(expr)
     }
 
     fn or(&mut self) -> Parsed<Expr> {

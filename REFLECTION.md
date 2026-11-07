@@ -1,63 +1,72 @@
-1. Cite the line where you decide that a . begins a fractional part rather than being a stray
-character. What does your scanner do with the input 5., and why is that what section 1.4
-requires?
-src/scanner.rs:157
-With the input 5., the scanners goes through the input character by character, sees the 5 and treats it as a number.
-Then it peeks at the dot, to check if it part of the number token, it does a lookahead to check for a number following the dot,
-so its in-line with the defined pattern for numbers in kobo. It doesn't see a number after the dot, so it ends the token, and adds
-5 as a Number token. The next iteration of the scanner sees the dot, which isn't a valid start to any token, and reports the
-'Character is not part of any token.' error.
+1. Cite the lines in your if_statement that resolve the dangling else. Explain why the
+recursion decides it rather than the grammar, and what your parser prints for
+if (false) if (true) print "a"; else print "b";, and what it would print if the else
+bound to the outer if instead.
+src/parser.rs:192, src/parser.rs:195
 
-2. Cite every line where you change the line counter. Explain which line your EOF token ends
-up carrying for a file that ends in two blank lines, and why section 6.1 asks for that rather than
-the file's last line.
-src/scanner.rs:35, src/scanner.rs:53, src/scanner.rs:147 
+The then branch is a full statement() call, and only after that returns does this if look
+for an else. A nested if is that statement, so its own if_statement is still running and
+takes the else before the outer one gets to check. The grammar just says the else is
+optional. It never says which if it belongs to. The call stack does.
 
-EOF token carries the line count of the file's last token, even with two blank lines at the end.
-This is because EOF should mark the end of the token stream, not the end of the file itself.
+For `if (false) if (true) print "a"; else print "b";` it prints:
 
+(if false (if true (print "a") (print "b")))
 
-3. Name one test in tests/phase-1/ that you failed at some point. Cite the line you changed
-to fix it, and say plainly what you had misunderstood. “I made a typo” is not an answer; “I was
-incrementing line before adding the token, so the token was reported on the next line” is.
-Anchor it in your own history. Give the two commit hashes — the commit where that
-line was still wrong, and the commit where you fixed it — and quote the line as it stood in
-each. git log -p --follow src/scanner.rs will find them, and git log --oneline
-gives you the hashes. Both commits must be your own and both must be at or before the
-deadline. This is checked against your repository, so a hash that is not in your history makes
-the answer incomplete.
+If the else bound to the outer if, the inner one would have no else branch, and it would print:
 
-I was failing invalid/trailing_dot.kobo. To fix it I reworked the whole number function, notably
-src/scanner.rs:155-177. I naively advanced after seeing a dot, without doing a lookahead check
-to see if it was followed by a number first.
+(if false (if true (print "a")) (print "b"))
 
-Introduced in: c4690ac9d216ff8feeba89eb105674d261a74079
+2. Cite the line in assignment where you check what the left side turned out to be.
+Explain why that check cannot happen before the left side is parsed, and name the message
+from section 5.1 that 1 = 2; produces.
+src/parser.rs:266
+
+The left side is already parsed, by or(), before that match. A name, a number and a call
+all have to be read as an expression before you can see whether an = follows, and one
+token of lookahead cannot tell those apart. The match then keeps the node only when it is
+a bare variable. 1 = 2; takes the other branch and reports Cannot assign to this expression.
+
+3. Cite synchronise. Say exactly which tokens you stop on and why those. Then name one
+test in tests/phase-2/invalid/ whose output changes if you delete the call to it, and say
+what its output becomes.
+src/parser.rs:463, src/parser.rs:467
+
+It steps over one token first, then stops when the token it just passed is `;`, or when
+the token it is now sitting on is fun, var, if, while, print or return. A semicolon means
+the broken statement is finished. Those six keywords are the ones that start a declaration
+or a statement, so that is a real place to start parsing again.
+
+The call is src/parser.rs:18. Deleting it changes
+tests/phase-2/invalid/expect_variable_name.kobo. With the call, that test prints:
+
+[line 1] Error at '123': Expect variable name.
+
+Without it the parser is still on 123, so it parses 123 = 1 as an assignment and the
+output becomes:
+
+[line 1] Error at '123': Expect variable name.
+[line 1] Error at '=': Cannot assign to this expression.
+
+I was only returning from synchronise after a semicolon, so it never resumed on a statement
+keyword and would keep discarding the next statement while it looked for one.
+
+Still wrong in: f9dbff81c3b39607a33bed731193038b96a00b40
 ```rs
-'.' => {
-                    if has_dot {
-                        self.error(self.line, "Invalid number"); ()
-                    } else { has_dot = true; }
-                    self.advance();
-                },
+            if self.previous().kind == TokenType::Semicolon {
+                return;
+            }
 ```
 
-Fixed in: 64f059d4950134b98a57eff7fab4342657aa9747
+Fixed in: b6263f1161330f47e5989f4c8b7d4df0ca8dbbd0
 ```rs
-                .' => {
-                    // only advance if next character is valid
-                    match self.peek_next() {
-                        '0'..='9' => self.advance(),
-                        _ => break,
-                    };
-                    // once we've seen one dot, only treat subsequent numbers as valid characters
-                    // break so match in scan_token handles anything after that
-                    while !self.at_end() {
-                        match self.peek() {
-                            '0'..='9' => {
-                                self.advance();
-                            },
-                            _ => break 'outer,
-                        }
-                    }
-                }
+            match self.peek().kind {
+                TokenType::Fun
+                | TokenType::Var
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
+                _ => {}
+            }
 ```

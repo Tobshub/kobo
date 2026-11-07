@@ -199,7 +199,17 @@ impl Parser {
 
         let mut stmts = Vec::new();
         while !self.check(TokenType::RBrace) && !self.at_end() {
-            stmts.push(self.declaration()?);
+            match self.declaration() {
+                Ok(stmt) => stmts.push(stmt),
+                // The closing brace is this block's, not more garbage. Leave it so the
+                // consume below can take it; anything else is skipped by synchronise.
+                Err(()) => {
+                    if self.check(TokenType::RBrace) {
+                        break;
+                    }
+                    self.synchronise();
+                }
+            }
         }
         self.consume(TokenType::RBrace, "Expect '}' after block.")?;
         Ok(stmts)
@@ -427,13 +437,21 @@ impl Parser {
     fn synchronise(&mut self) {
         // TODO(you): spec 5.2: after an error, discard tokens until just past a ';' or on a
         //            statement keyword, so one mistake costs one message.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
-        self.depth = 0;
+        // todo!("synchronise")
+
         while !self.at_end() {
             self.current += 1;
             if self.previous().kind == TokenType::Semicolon {
                 return;
+            }
+            match self.peek().kind {
+                TokenType::Fun
+                | TokenType::Var
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
+                _ => {}
             }
         }
     }

@@ -72,48 +72,85 @@ impl Parser {
 
     fn statement_inner(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1: pick the statement by its leading token.
-        // TEMPORARY: enough of this rule to let the ones below it run. Replace it in its
-        //            own week; the marking tests for it fail until you do.
-        // Named rather than misreported, so an `if` says what it is instead of failing
-        // as a broken expression.
-        if self.check(TokenType::LBrace) || self.check(TokenType::If)
-            || self.check(TokenType::While) || self.check(TokenType::Return)
-        {
-            self.error("This statement form is not written yet.");
-            return Err(());
-        }
+        // todo!("statement_inner")
+
         if self.matches(&[TokenType::Print]) {
             let value = self.expression()?;
             self.consume(TokenType::Semicolon, "Expect ';' after value.")?;
-            Ok(Stmt::Print(value))
-        } else {
-            let expr = self.expression()?;
-            self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
-            Ok(Stmt::Expression(expr))
+            return Ok(Stmt::Print(value));
         }
+        if self.matches(&[TokenType::If]) {
+            return self.if_statement();
+        }
+        if self.matches(&[TokenType::While]) {
+            return self.while_statement();
+        }
+        if self.matches(&[TokenType::Return]) {
+            return self.return_statement();
+        }
+        if self.matches(&[TokenType::LBrace]) {
+            let body = self.block()?;
+            return Ok(Stmt::Block { body, locals: 0 });
+        }
+
+        let expr = self.expression()?;
+        self.consume(TokenType::Semicolon, "Expect ';' after expression.")?;
+        Ok(Stmt::Expression(expr))
     }
 
     fn return_statement(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1: 'return' expression? ';'
-        todo!("return_statement")
+        // todo!("return_statement")
+
+        let mut value = None;
+        if !self.check(TokenType::Semicolon) {
+            value = Some(self.expression()?);
+        }
+        self.consume(TokenType::Semicolon, "Expect ';' after return value.")?;
+        Ok(Stmt::Return(value))
     }
 
     fn if_statement(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1. The dangling else binds to the nearest unmatched if , the
         //            recursion decides that, not the grammar.
-        todo!("if_statement")
+        // todo!("if_statement")
+
+        self.consume(TokenType::LParen, "Expect '(' after 'if'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RParen, "Expect ')' after if condition.")?;
+        let then_branch = Box::new(self.statement()?);
+
+        let mut else_branch = None;
+        if self.matches(&[TokenType::Else]) {
+            else_branch = Some(Box::new(self.statement()?));
+        }
+
+        Ok(Stmt::If { condition, then_branch, else_branch })
     }
 
     fn while_statement(&mut self) -> Parsed<Stmt> {
         // TODO(you): spec 3.1: 'while' '(' expression ')' statement
-        todo!("while_statement")
+        // todo!("while_statement")
+
+        self.consume(TokenType::LParen, "Expect '(' after 'while'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RParen, "Expect ')' after while condition.")?;
+        let body = Box::new(self.statement()?);
+        Ok(Stmt::While { condition, body })
     }
 
     /// The `{` is already consumed. Declarations, not statements: a block is where a
     /// `var` most often appears, and the whole point of one is that the name dies at `}`.
     fn block(&mut self) -> Parsed<Vec<Stmt>> {
         // TODO(you): spec 3.1: '{' declaration* '}'
-        todo!("block")
+        // todo!("block")
+
+        let mut stmts = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.at_end() {
+            stmts.push(self.declaration()?);
+        }
+        self.consume(TokenType::RBrace, "Expect '}' after block.")?;
+        Ok(stmts)
     }
 
     // --- expressions, lowest precedence first --------------------------------------

@@ -154,12 +154,31 @@ impl Parser {
         // TODO(you): spec 3.1: 'return' expression? ';'
         // todo!("return_statement")
 
+        // expression? — only when the next token can actually start one. `return }` and
+        // `return` at end of file are a missing semicolon, not a missing expression.
         let mut value = None;
-        if !self.check(TokenType::Semicolon) {
+        if self.can_start_expression() {
             value = Some(self.expression()?);
         }
         self.consume(TokenType::Semicolon, "Expect ';' after return value.")?;
         Ok(Stmt::Return(value))
+    }
+
+    /// Tokens that can open an expression (spec 3.2). Used where the grammar has
+    /// `expression?`, so a `}` or end of file is not mistaken for one.
+    fn can_start_expression(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenType::Number
+                | TokenType::Str
+                | TokenType::True
+                | TokenType::False
+                | TokenType::Nil
+                | TokenType::Identifier
+                | TokenType::LParen
+                | TokenType::Bang
+                | TokenType::Minus
+        )
     }
 
     fn if_statement(&mut self) -> Parsed<Stmt> {

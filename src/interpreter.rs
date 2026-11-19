@@ -38,14 +38,179 @@ pub fn interpret(program: &Program) -> Result<(), RuntimeError> {
 }
 
 fn execute(stmt: &Stmt, env: &mut Environment, program: &Program) -> Exec<()> {
-    // TODO(you): spec 4: run one statement.
-    todo!("execute")
+    match stmt {
+        Stmt::Expression(expr) => {
+            evaluate(expr, env, program)?;
+            Ok(())
+        }
+
+        Stmt::Print(expr) => {
+            let value = evaluate(expr, env, program)?;
+            println!("{}", value);
+            Ok(())
+        }
+
+        Stmt::Var {
+            name, initialiser, ..
+        } => {
+            let value = match initialiser {
+                Some(expr) => evaluate(expr, env, program)?,
+                None => Value::Nil,
+            };
+            env.declare(&name.lexeme, value);
+            Ok(())
+        }
+
+        Stmt::Block { body, .. } => {
+            env.push_scope();
+            for stmt in body {
+                execute(stmt, env, program)?;
+            }
+            env.pop_scope();
+            Ok(())
+        }
+
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            if evaluate(condition, env, program)?.is_truthy() {
+                execute(then_branch, env, program)?;
+            } else if let Some(alt) = else_branch {
+                execute(alt, env, program)?;
+            }
+            Ok(())
+        }
+
+        Stmt::While { condition, body } => {
+            while evaluate(condition, env, program)?.is_truthy() {
+                execute(body, env, program)?;
+            }
+            Ok(())
+        }
+
+        Stmt::Function { index, name, .. } => {
+            env.declare(
+                name,
+                Value::Function {
+                    index: *index,
+                    name: name.clone(),
+                },
+            );
+            Ok(())
+        }
+
+        Stmt::Return(value) => {
+            let value = match value {
+                Some(expr) => evaluate(expr, env, program)?,
+                None => Value::Nil,
+            };
+            Err(Flow::Return(value))
+        }
+    }
 }
 
 fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value> {
-    // TODO(you): spec 2 and 4.1: evaluate one expression to a Value. Truthiness, equality
-    //            across kinds and short-circuiting are all specified.
-    todo!("evaluate")
+    match expr {
+        Expr::Literal { value, .. } => Ok(value.clone()),
+        Expr::Grouping(inner) => evaluate(inner, env, program),
+
+        Expr::Variable { name, at } => read(env, name, *at),
+
+        Expr::Assign { name, value, at } => {
+            let value = evaluate(value, env, program)?;
+            let wrote = match at {
+                Resolved::Global => env.assign_global(&name.lexeme, value.clone()),
+                Resolved::Local { depth, .. } => {
+                    env.assign_at(*depth, &name.lexeme, value.clone())
+                }
+            };
+            if wrote {
+                Ok(value)
+            } else {
+                Err(undefined(name))
+            }
+        }
+
+        Expr::Unary { op, right } => {
+            let value = evaluate(right, env, program)?;
+            match op.kind {
+                TokenType::Bang => Ok(Value::Bool(!value.is_truthy())),
+                TokenType::Minus => match value {
+                    Value::Number(n) => Ok(Value::Number(-n)),
+                    _ => Err(err(op.line, "Operand must be a number.")),
+                },
+                _ => Err(err(op.line, "Operand must be a number.")),
+            }
+        }
+
+        Expr::Binary { left, op, right } => {
+            let l = evaluate(left, env, program)?;
+            let r = evaluate(right, env, program)?;
+            match op.kind {
+                TokenType::Plus => match (l, r) {
+                    (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
+                    (Value::Str(a), Value::Str(b)) => Ok(Value::Str(a + &b)),
+                    _ => Err(err(op.line, "Operands must be two numbers or two strings.")),
+                },
+                TokenType::Minus => arith(l, r, op.line, |a, b| a - b),
+                TokenType::Star => arith(l, r, op.line, |a, b| a * b),
+                TokenType::Slash => {
+                    let (a, b) = numbers(l, r, op.line)?;
+                    if b == 0.0 {
+                        return Err(err(op.line, "Division by zero."));
+                    }
+                    Ok(Value::Number(a / b))
+                }
+                TokenType::Greater => compare(l, r, op.line, |a, b| a > b),
+                TokenType::GreaterEqual => compare(l, r, op.line, |a, b| a >= b),
+                TokenType::Less => compare(l, r, op.line, |a, b| a < b),
+                TokenType::LessEqual => compare(l, r, op.line, |a, b| a <= b),
+                TokenType::EqualEqual => Ok(Value::Bool(l == r)),
+                TokenType::BangEqual => Ok(Value::Bool(l != r)),
+                _ => Err(err(op.line, "Operands must be numbers.")),
+            }
+        }
+
+        // `and` / `or` yield one of their operands, not a boolean (spec 4.1).
+        Expr::Logical { left, op, right } => {
+            let l = evaluate(left, env, program)?;
+            if op.kind == TokenType::Or {
+                if l.is_truthy() {
+                    return Ok(l);
+                }
+            } else if !l.is_truthy() {
+                return Ok(l);
+            }
+            evaluate(right, env, program)
+        }
+
+        Expr::Call {
+            callee, paren, args, ..
+        } => {
+            let callee = evaluate(callee, env, program)?;
+            let mut values = Vec::new();
+            for arg in args {
+                values.push(evaluate(arg, env, program)?);
+            }
+            match callee {
+                Value::Function { index, .. } => call(index, values, paren.line, env, program),
+                _ => Err(err(paren.line, "This value is not a function.")),
+            }
+        }
+    }
+}
+
+fn read(env: &Environment, name: &Token, at: Resolved) -> Exec<Value> {
+    let value = match at {
+        Resolved::Global => env.get_global(&name.lexeme),
+        Resolved::Local { depth, .. } => env.get_at(depth, &name.lexeme),
+    };
+    match value {
+        Some(value) => Ok(value.clone()),
+        None => Err(undefined(name)),
+    }
 }
 
 /// Run a function body in a fresh frame. Everything about Kobo's scope rules is in these
@@ -59,9 +224,39 @@ fn call(
     env: &mut Environment,
     program: &Program,
 ) -> Exec<Value> {
-    // TODO(you): spec 4.3: check arity, push a frame, declare the parameters, run the body, and
-    //            pop the frame on all three ways out.
-    todo!("call")
+    let arity = program.functions[index].params.len();
+    if args.len() != arity {
+        return Err(err(
+            line,
+            &format!("Expected {} arguments but got {}.", arity, args.len()),
+        ));
+    }
+    if env.frame_depth() >= MAX_FRAMES {
+        return Err(err(line, "Stack overflow."));
+    }
+
+    let params = program.functions[index].params.clone();
+    env.push_frame();
+    for (name, value) in params.iter().zip(args) {
+        env.declare(name, value);
+    }
+
+    for stmt in &program.functions[index].body {
+        match execute(stmt, env, program) {
+            Ok(()) => {}
+            Err(Flow::Return(value)) => {
+                env.pop_frame();
+                return Ok(value);
+            }
+            Err(Flow::Error(error)) => {
+                env.pop_frame();
+                return Err(Flow::Error(error));
+            }
+        }
+    }
+
+    env.pop_frame();
+    Ok(Value::Nil)
 }
 
 fn numbers(l: Value, r: Value, line: usize) -> Exec<(f64, f64)> {

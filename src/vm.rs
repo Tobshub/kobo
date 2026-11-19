@@ -45,18 +45,147 @@ struct Vm {
 
 impl Vm {
     fn run(&mut self) -> Result<(), RuntimeError> {
-        // TODO(you): the dispatch loop: one match over Op. Spec 6.1 requires it to print
-        //            exactly what the interpreter prints, down to the exit code.
-        todo!("Vm::run")
+        loop {
+            let function = self.frame().function;
+            let ip = self.frame().ip;
+            let op = self.chunk(function).code[ip];
+            let line = self.chunk(function).lines[ip];
+            self.frame_mut().ip = ip + 1;
+
+            match op {
+                Op::Constant(index) => {
+                    let value = self.chunk(function).constants[index].clone();
+                    self.stack.push(value);
+                }
+                Op::Nil => self.stack.push(Value::Nil),
+                Op::True => self.stack.push(Value::Bool(true)),
+                Op::False => self.stack.push(Value::Bool(false)),
+                Op::Pop => {
+                    self.pop();
+                }
+
+                Op::DefineGlobal(index) => {
+                    let name = self.name(function, index);
+                    let value = self.pop();
+                    self.globals.insert(name, value);
+                }
+                Op::GetGlobal(index) => {
+                    let name = self.name(function, index);
+                    match self.globals.get(&name).cloned() {
+                        Some(value) => self.stack.push(value),
+                        None => return Err(undefined(line, &name)),
+                    }
+                }
+                Op::SetGlobal(index) => {
+                    let name = self.name(function, index);
+                    if !self.globals.contains_key(&name) {
+                        return Err(undefined(line, &name));
+                    }
+                    let value = self.peek().clone();
+                    self.globals.insert(name, value);
+                }
+                Op::GetLocal(slot) => {
+                    let index = self.frame().base + slot;
+                    let value = self.stack[index].clone();
+                    self.stack.push(value);
+                }
+                Op::SetLocal(slot) => {
+                    let value = self.peek().clone();
+                    let index = self.frame().base + slot;
+                    self.stack[index] = value;
+                }
+
+                Op::Equal => self.binary_value(|a, b| Value::Bool(a == b)),
+                Op::NotEqual => self.binary_value(|a, b| Value::Bool(a != b)),
+                Op::Greater => self.compare(line, |a, b| a > b)?,
+                Op::GreaterEqual => self.compare(line, |a, b| a >= b)?,
+                Op::Less => self.compare(line, |a, b| a < b)?,
+                Op::LessEqual => self.compare(line, |a, b| a <= b)?,
+                Op::Add => {
+                    let (a, b) = self.pop_two();
+                    match (a, b) {
+                        (Value::Number(a), Value::Number(b)) => {
+                            self.stack.push(Value::Number(a + b))
+                        }
+                        (Value::Str(a), Value::Str(b)) => self.stack.push(Value::Str(a + &b)),
+                        _ => {
+                            return Err(error(
+                                line,
+                                "Operands must be two numbers or two strings.",
+                            ))
+                        }
+                    }
+                }
+                Op::Subtract => self.arith(line, |a, b| a - b)?,
+                Op::Multiply => self.arith(line, |a, b| a * b)?,
+                Op::Divide => {
+                    let (a, b) = self.numbers(line)?;
+                    if b == 0.0 {
+                        return Err(error(line, "Division by zero."));
+                    }
+                    self.stack.push(Value::Number(a / b));
+                }
+                Op::Not => {
+                    let value = self.pop();
+                    self.stack.push(Value::Bool(!value.is_truthy()));
+                }
+                Op::Negate => match self.pop() {
+                    Value::Number(n) => self.stack.push(Value::Number(-n)),
+                    _ => return Err(error(line, "Operand must be a number.")),
+                },
+                Op::Print => {
+                    let value = self.pop();
+                    println!("{}", value);
+                }
+
+                Op::Jump(target) => self.frame_mut().ip = target,
+                Op::JumpIfFalse(target) => {
+                    if !self.peek().is_truthy() {
+                        self.frame_mut().ip = target;
+                    }
+                }
+                Op::Call(argc) => self.call(argc, line)?,
+                Op::Return => {
+                    let value = self.pop();
+                    let frame = self.frames.pop().expect("a frame is always running");
+                    if self.frames.is_empty() {
+                        return Ok(());
+                    }
+                    self.stack.truncate(frame.base - 1);
+                    self.stack.push(value);
+                }
+            }
+        }
     }
 
     /// The callee is on the stack underneath its arguments, put there by the code that
     /// evaluated it. Nothing is moved: the arguments are already lying where the new
     /// frame's slots 0 upwards need them to be.
     fn call(&mut self, argc: usize, line: usize) -> Result<(), RuntimeError> {
-        // TODO(you): spec 4.3 again, on a stack instead of a tree: the arguments are already
-        //            lying where the callee's slots need them.
-        todo!("Vm::call")
+        let callee_at = self.stack.len() - argc - 1;
+        let callee = self.stack[callee_at].clone();
+        let Value::Function { index, .. } = callee else {
+            return Err(error(line, "This value is not a function."));
+        };
+
+        let arity = self.bytecode.functions[index].arity;
+        if argc != arity {
+            return Err(error(
+                line,
+                &format!("Expected {} arguments but got {}.", arity, argc),
+            ));
+        }
+        // `frames` includes the script, so 500 function calls is one past MAX_FRAMES.
+        if self.frames.len() > MAX_FRAMES {
+            return Err(error(line, "Stack overflow."));
+        }
+
+        self.frames.push(Frame {
+            function: Some(index),
+            ip: 0,
+            base: callee_at + 1,
+        });
+        Ok(())
     }
 
     // --- primitives -------------------------------------------------------------------

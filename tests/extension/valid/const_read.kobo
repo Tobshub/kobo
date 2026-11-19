@@ -1,0 +1,17 @@
+const a = 1;
+print a;                   // expect: 1
+
+const greeting = "Hello";
+print greeting + "!";     // expect: Hello!
+
+fun answer() {
+  const n = 21;
+  return n * 2;
+}
+print answer();            // expect: 42
+
+if (false) {
+  const hidden = "no";
+  print hidden;
+}
+print "after";             // expect: after

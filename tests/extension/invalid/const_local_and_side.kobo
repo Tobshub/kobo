@@ -1,0 +1,13 @@
+fun bump() {
+  print "side";
+  return 1;
+}
+
+fun locked() {
+  const n = 0;
+  n = bump();
+}
+
+locked();
+// expect: side
+// [line 8] Runtime error: Cannot assign to constant 'n'.

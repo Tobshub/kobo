@@ -1,0 +1,3 @@
+const a = 1;
+a = 2;
+// [line 2] Runtime error: Cannot assign to constant 'a'.

@@ -1,0 +1,24 @@
+const a = "outer";
+{
+  var a = "inner";
+  a = a + "!";
+  print a;                 // expect: inner!
+}
+print a;                   // expect: outer
+
+{
+  const b = 1;
+}
+{
+  var b = 2;
+  b = b + 1;
+  print b;                 // expect: 3
+}
+
+const c = 1;
+var c = 2;
+c = 3;
+print c;                   // expect: 3
+
+if (false) a = "skipped";
+print a;                   // expect: outer

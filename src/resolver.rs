@@ -8,10 +8,20 @@ use crate::ast::{Expr, Function, Program, Resolved, Stmt};
 /// which is what makes mutual recursion legal, so a name that matches no local is a
 /// global by construction. Spec section 7.
 pub fn resolve(program: &mut Program) {
-    // TODO(you): spec 7, 'The resolver': walk every function body in its own frame (4.3), then
-    //            the script. A function's body sees its own scopes and the globals and nothing
-    //            between.
-    todo!("resolve")
+    // A function sees its own parameters and the globals, never the caller's locals
+    // (spec 4.3), so each body is resolved in a fresh frame before the script.
+    for function in &mut program.functions {
+        let mut resolver = Resolver::default();
+        resolver.depth = 1;
+        for name in &function.params {
+            resolver.declare(name);
+            resolver.define(name);
+        }
+        resolver.statements(&mut function.body);
+    }
+
+    let mut resolver = Resolver::default();
+    resolver.statements(&mut program.stmts);
 }
 
 struct Local {
@@ -36,28 +46,57 @@ impl Resolver {
     /// Returns how many locals the scope held: the number of `Pop`s the bytecode
     /// compiler owes for leaving it.
     fn end_scope(&mut self) -> usize {
-        // TODO(you): close a scope and report how many locals died in it, which is how many
-        //            Pops the bytecode compiler owes.
-        todo!("end_scope")
+        let mut count = 0;
+        while let Some(local) = self.locals.last() {
+            if local.scope != self.depth {
+                break;
+            }
+            self.locals.pop();
+            count += 1;
+        }
+        self.depth -= 1;
+        count
     }
 
     fn declare(&mut self, name: &str) {
-        // TODO(you): introduce a binding that is not usable yet; its own initialiser must not
-        //            see it (4.2).
-        todo!("declare")
+        // Globals stay unresolved: a name at depth 0 is not a local.
+        if self.depth == 0 {
+            return;
+        }
+        self.locals.push(Local {
+            name: name.to_string(),
+            scope: self.depth,
+            initialised: false,
+        });
     }
 
     /// `None` at the top level of the script, where a declaration is a global.
     fn define(&mut self, name: &str) -> Option<usize> {
-        // TODO(you): make it usable, and hand back its stack slot.
-        todo!("define")
+        if self.depth == 0 {
+            return None;
+        }
+        for slot in (0..self.locals.len()).rev() {
+            let local = &mut self.locals[slot];
+            if local.scope == self.depth && local.name == name {
+                local.initialised = true;
+                return Some(slot);
+            }
+        }
+        None
     }
 
     /// Innermost first, so the nearest declaration wins and an outer one stays shadowed.
     fn lookup(&self, name: &str) -> Resolved {
-        // TODO(you): innermost binding first, skipping any still initialising. A name that
-        //            matches no local is a global (spec 7).
-        todo!("lookup")
+        for slot in (0..self.locals.len()).rev() {
+            let local = &self.locals[slot];
+            if local.name == name && local.initialised {
+                return Resolved::Local {
+                    depth: self.depth - local.scope,
+                    slot,
+                };
+            }
+        }
+        Resolved::Global
     }
 
     fn statements(&mut self, stmts: &mut [Stmt]) {

@@ -113,6 +113,7 @@ impl Resolver {
                 name,
                 initialiser,
                 slot,
+                ..
             } => {
                 // Declare, resolve, define, in that order, which is the whole of section 4.2.
                 self.declare(&name.lexeme);

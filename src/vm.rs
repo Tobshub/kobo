@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::chunk::{Bytecode, Chunk, Op};
 // The same error type and the same frame limit as the tree-walker, deliberately shared.
@@ -15,6 +15,8 @@ struct Frame {
     ip: usize,
     /// Stack index of local slot 0. The callee's own value sits just below it.
     base: usize,
+    /// `const_slots[i]` is the name of a `const` local in slot `i`.
+    const_slots: Vec<Option<String>>,
 }
 
 /// Run compiled bytecode. The VM owns it: nothing needs the chunks afterwards, and owning
@@ -24,10 +26,12 @@ pub fn run(bytecode: Bytecode) -> Result<(), RuntimeError> {
         bytecode,
         stack: Vec::new(),
         globals: HashMap::new(),
+        const_globals: HashSet::new(),
         frames: vec![Frame {
             function: None,
             ip: 0,
             base: 0,
+            const_slots: Vec::new(),
         }],
     };
     vm.run()
@@ -40,6 +44,7 @@ struct Vm {
     /// and the Rust stack for the arithmetic. Merging them is what makes this fast.
     stack: Vec<Value>,
     globals: HashMap<String, Value>,
+    const_globals: HashSet<String>,
     frames: Vec<Frame>,
 }
 
@@ -67,6 +72,13 @@ impl Vm {
                 Op::DefineGlobal(index) => {
                     let name = self.name(function, index);
                     let value = self.pop();
+                    self.const_globals.remove(&name);
+                    self.globals.insert(name, value);
+                }
+                Op::DefineConst(index) => {
+                    let name = self.name(function, index);
+                    let value = self.pop();
+                    self.const_globals.insert(name.clone());
                     self.globals.insert(name, value);
                 }
                 Op::GetGlobal(index) => {
@@ -78,6 +90,12 @@ impl Vm {
                 }
                 Op::SetGlobal(index) => {
                     let name = self.name(function, index);
+                    if self.const_globals.contains(&name) {
+                        return Err(error(
+                            line,
+                            &format!("Cannot assign to constant '{}'.", name),
+                        ));
+                    }
                     if !self.globals.contains_key(&name) {
                         return Err(undefined(line, &name));
                     }
@@ -90,10 +108,21 @@ impl Vm {
                     self.stack.push(value);
                 }
                 Op::SetLocal(slot) => {
+                    if let Some(name) = self.const_local(slot) {
+                        return Err(error(
+                            line,
+                            &format!("Cannot assign to constant '{}'.", name),
+                        ));
+                    }
                     let value = self.peek().clone();
                     let index = self.frame().base + slot;
                     self.stack[index] = value;
                 }
+                Op::MarkConst { slot, name } => {
+                    let label = self.name(function, name);
+                    self.mark_slot(slot, Some(label));
+                }
+                Op::MarkMutable(slot) => self.mark_slot(slot, None),
 
                 Op::Equal => self.binary_value(|a, b| Value::Bool(a == b)),
                 Op::NotEqual => self.binary_value(|a, b| Value::Bool(a != b)),
@@ -184,6 +213,7 @@ impl Vm {
             function: Some(index),
             ip: 0,
             base: callee_at + 1,
+            const_slots: Vec::new(),
         });
         Ok(())
     }
@@ -207,6 +237,18 @@ impl Vm {
 
     fn frame_mut(&mut self) -> &mut Frame {
         self.frames.last_mut().expect("a frame is always running")
+    }
+
+    fn const_local(&self, slot: usize) -> Option<String> {
+        self.frame().const_slots.get(slot).and_then(|name| name.clone())
+    }
+
+    fn mark_slot(&mut self, slot: usize, constant: Option<String>) {
+        let slots = &mut self.frame_mut().const_slots;
+        if slots.len() <= slot {
+            slots.resize(slot + 1, None);
+        }
+        slots[slot] = constant;
     }
 
     fn pop(&mut self) -> Value {

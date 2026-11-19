@@ -101,6 +101,8 @@ pub enum Stmt {
         initialiser: Option<Expr>,
         /// The stack slot the resolver gave it, or `None` for a global.
         slot: Option<usize>,
+        /// Extension: `const` requires an initialiser and rejects later assignment.
+        constant: bool,
     },
     Block {
         body: Vec<Stmt>,

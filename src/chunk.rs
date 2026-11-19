@@ -24,12 +24,19 @@ pub enum Op {
     /// to be findable by name at run time, and the name has to live somewhere the VM can
     /// reach, so it goes in the constant table with everything else.
     DefineGlobal(usize),
+    /// Like `DefineGlobal`, and the name cannot later be assigned to.
+    DefineConst(usize),
     GetGlobal(usize),
     SetGlobal(usize),
     /// A slot in the current call frame's window of the stack. Resolved at compile time,
     /// which is the whole reason locals are faster than globals.
     GetLocal(usize),
     SetLocal(usize),
+    /// Local `slot` was declared with `const`. `name` is a string constant, kept so the
+    /// runtime error can name it. The value is already on the stack.
+    MarkConst { slot: usize, name: usize },
+    /// Local `slot` may be assigned. Clears a const mark when a `var` reuses the slot.
+    MarkMutable(usize),
 
     Equal,
     NotEqual,

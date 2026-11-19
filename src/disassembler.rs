@@ -36,10 +36,15 @@ fn instruction(c: &Chunk, op: Op) -> String {
     match op {
         Op::Constant(i) => format!("{:<14} {:>4} '{}'", "CONSTANT", i, c.constants[i]),
         Op::DefineGlobal(i) => format!("{:<14} {:>4} '{}'", "DEFINE_GLOBAL", i, c.constants[i]),
+        Op::DefineConst(i) => format!("{:<14} {:>4} '{}'", "DEFINE_CONST", i, c.constants[i]),
         Op::GetGlobal(i) => format!("{:<14} {:>4} '{}'", "GET_GLOBAL", i, c.constants[i]),
         Op::SetGlobal(i) => format!("{:<14} {:>4} '{}'", "SET_GLOBAL", i, c.constants[i]),
         Op::GetLocal(i) => format!("{:<14} {:>4}", "GET_LOCAL", i),
         Op::SetLocal(i) => format!("{:<14} {:>4}", "SET_LOCAL", i),
+        Op::MarkConst { slot, name } => {
+            format!("{:<14} {:>4} '{}'", "MARK_CONST", slot, c.constants[name])
+        }
+        Op::MarkMutable(slot) => format!("{:<14} {:>4}", "MARK_MUTABLE", slot),
         Op::Jump(t) => format!("{:<14} {:>4}", "JUMP", t),
         Op::JumpIfFalse(t) => format!("{:<14} {:>4}", "JUMP_IF_FALSE", t),
         Op::Call(n) => format!("{:<14} {:>4}", "CALL", n),

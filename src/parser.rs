@@ -55,6 +55,9 @@ impl Parser {
         if self.matches(&[TokenType::Var]) {
             return self.var_declaration();
         }
+        if self.matches(&[TokenType::Const]) {
+            return self.const_declaration();
+        }
         self.statement()
     }
 
@@ -112,6 +115,29 @@ impl Parser {
             name,
             initialiser,
             slot: None,
+            constant: false,
+        })
+    }
+
+    /// `const name = expression ;`
+    ///
+    /// The initialiser is required. Assigning to the binding later is a runtime error,
+    /// `Cannot assign to constant 'name'.`, reported on the assignment. A later `var` or
+    /// `fun` for the same name in the same scope replaces the binding. The right-hand
+    /// side of a rejected assignment is still evaluated.
+    fn const_declaration(&mut self) -> Parsed<Stmt> {
+        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
+        self.consume(TokenType::Equal, "Expect initialiser after constant name.")?;
+        let initialiser = self.expression()?;
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after constant declaration.",
+        )?;
+        Ok(Stmt::Var {
+            name,
+            initialiser: Some(initialiser),
+            slot: None,
+            constant: true,
         })
     }
 
@@ -466,6 +492,7 @@ impl Parser {
             match self.peek().kind {
                 TokenType::Fun
                 | TokenType::Var
+                | TokenType::Const
                 | TokenType::If
                 | TokenType::While
                 | TokenType::Print

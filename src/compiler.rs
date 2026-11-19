@@ -86,6 +86,7 @@ impl<'a> Compiler<'a> {
                 name,
                 initialiser,
                 slot,
+                constant,
             } => {
                 let line = match initialiser {
                     Some(expr) => self.expression(expr),
@@ -94,7 +95,7 @@ impl<'a> Compiler<'a> {
                         name.line
                     }
                 };
-                self.declare(&name.lexeme, *slot, line);
+                self.declare(&name.lexeme, *slot, *constant, line);
             }
 
             Stmt::Block { body, locals } => {
@@ -140,7 +141,7 @@ impl<'a> Compiler<'a> {
                     name: fname,
                 });
                 self.chunk.write(Op::Constant(constant), line);
-                self.declare(name, *slot, line);
+                self.declare(name, *slot, false, line);
             }
 
             Stmt::Return(value) => {
@@ -286,14 +287,28 @@ impl<'a> Compiler<'a> {
     /// slot the resolver gave it, so declaring one emits nothing. `slot` is the
     /// resolver's answer and `in_function` is the one case it cannot express on its own:
     /// the script's outermost declarations are globals and a function body's are not.
-    fn declare(&mut self, name: &str, slot: Option<usize>, line: usize) {
-        // A local is already sitting in its slot. Inside a function every declaration
-        // is a local, including one the resolver left without a slot.
-        if slot.is_some() || self.in_function {
+    fn declare(&mut self, name: &str, slot: Option<usize>, constant: bool, line: usize) {
+        // A local is already sitting in its slot. The mark tells the VM whether a later
+        // assignment to that slot is legal. Inside a function every declaration is a
+        // local, including one the resolver left without a slot.
+        if let Some(slot) = slot {
+            if constant {
+                let name_index = self.name_constant(name);
+                self.chunk.write(Op::MarkConst { slot, name: name_index }, line);
+            } else {
+                self.chunk.write(Op::MarkMutable(slot), line);
+            }
             return;
         }
-        let constant = self.name_constant(name);
-        self.chunk.write(Op::DefineGlobal(constant), line);
+        if self.in_function {
+            return;
+        }
+        let name_index = self.name_constant(name);
+        if constant {
+            self.chunk.write(Op::DefineConst(name_index), line);
+        } else {
+            self.chunk.write(Op::DefineGlobal(name_index), line);
+        }
     }
 
     fn name_constant(&mut self, name: &str) -> usize {

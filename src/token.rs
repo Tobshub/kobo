@@ -40,6 +40,8 @@ pub enum TokenType {
     True,
     Var,
     While,
+    /// Extension: `const` binds a name that cannot be assigned to.
+    Const,
 
     Eof,
 }
@@ -87,6 +89,7 @@ impl TokenType {
             TokenType::True => "TRUE",
             TokenType::Var => "VAR",
             TokenType::While => "WHILE",
+            TokenType::Const => "CONST",
 
             TokenType::Eof => "EOF",
         }
@@ -107,6 +110,7 @@ pub fn keyword(word: &str) -> Option<TokenType> {
         "true" => Some(TokenType::True),
         "var" => Some(TokenType::Var),
         "while" => Some(TokenType::While),
+        "const" => Some(TokenType::Const),
         _ => None,
     }
 }

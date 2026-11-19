@@ -18,11 +18,17 @@ pub fn statement(stmt: &Stmt, program: &Program) -> String {
         Stmt::Expression(e) => format!("(expr {})", expression(e)),
         Stmt::Print(e) => format!("(print {})", expression(e)),
         Stmt::Var {
-            name, initialiser, ..
-        } => match initialiser {
-            Some(e) => format!("(var {} {})", name.lexeme, expression(e)),
-            None => format!("(var {})", name.lexeme),
-        },
+            name,
+            initialiser,
+            constant,
+            ..
+        } => {
+            let keyword = if *constant { "const" } else { "var" };
+            match initialiser {
+                Some(e) => format!("({} {} {})", keyword, name.lexeme, expression(e)),
+                None => format!("({} {})", keyword, name.lexeme),
+            }
+        }
         Stmt::Block { body, .. } => format!("(block{})", parts(body, program)),
         Stmt::Function { index, .. } => {
             let f = &program.functions[*index];

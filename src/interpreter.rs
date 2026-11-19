@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::ast::{Expr, Program, Resolved, Stmt};
 use crate::environment::Environment;
 use crate::token::{Token, TokenType};
@@ -24,10 +26,67 @@ type Exec<T> = Result<T, Flow>;
 /// frames; 500 leaves room for a deeply nested expression inside every one of them.
 pub const MAX_FRAMES: usize = 500;
 
+/// Which names in each live scope were bound with `const`. Kept beside `Environment`
+/// because that file is given and stores values only. A `var` or `fun` for the same
+/// name removes the mark, which is Kobo's redeclaration rule applied to const.
+struct Consts {
+    scopes: Vec<HashSet<String>>,
+    frames: Vec<usize>,
+}
+
+impl Consts {
+    fn new() -> Self {
+        Consts {
+            scopes: vec![HashSet::new()],
+            frames: Vec::new(),
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashSet::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn push_frame(&mut self) {
+        self.frames.push(self.scopes.len());
+        self.scopes.push(HashSet::new());
+    }
+
+    fn pop_frame(&mut self) {
+        if let Some(base) = self.frames.pop() {
+            self.scopes.truncate(base);
+        }
+    }
+
+    fn bind(&mut self, name: &str, constant: bool) {
+        let scope = self.scopes.last_mut().expect("a scope is always open");
+        if constant {
+            scope.insert(name.to_string());
+        } else {
+            scope.remove(name);
+        }
+    }
+
+    fn is_const_at(&self, depth: usize, name: &str) -> bool {
+        match self.scopes.len().checked_sub(depth + 1) {
+            Some(i) => self.scopes[i].contains(name),
+            None => false,
+        }
+    }
+
+    fn is_const_global(&self, name: &str) -> bool {
+        self.scopes[0].contains(name)
+    }
+}
+
 pub fn interpret(program: &Program) -> Result<(), RuntimeError> {
     let mut env = Environment::new();
+    let mut consts = Consts::new();
     for stmt in &program.stmts {
-        match execute(stmt, &mut env, program) {
+        match execute(stmt, &mut env, &mut consts, program) {
             Ok(()) => {}
             // `return` outside any function ends the program (spec section 3.1).
             Err(Flow::Return(_)) => return Ok(()),
@@ -37,36 +96,47 @@ pub fn interpret(program: &Program) -> Result<(), RuntimeError> {
     Ok(())
 }
 
-fn execute(stmt: &Stmt, env: &mut Environment, program: &Program) -> Exec<()> {
+fn execute(
+    stmt: &Stmt,
+    env: &mut Environment,
+    consts: &mut Consts,
+    program: &Program,
+) -> Exec<()> {
     match stmt {
         Stmt::Expression(expr) => {
-            evaluate(expr, env, program)?;
+            evaluate(expr, env, consts, program)?;
             Ok(())
         }
 
         Stmt::Print(expr) => {
-            let value = evaluate(expr, env, program)?;
+            let value = evaluate(expr, env, consts, program)?;
             println!("{}", value);
             Ok(())
         }
 
         Stmt::Var {
-            name, initialiser, ..
+            name,
+            initialiser,
+            constant,
+            ..
         } => {
             let value = match initialiser {
-                Some(expr) => evaluate(expr, env, program)?,
+                Some(expr) => evaluate(expr, env, consts, program)?,
                 None => Value::Nil,
             };
             env.declare(&name.lexeme, value);
+            consts.bind(&name.lexeme, *constant);
             Ok(())
         }
 
         Stmt::Block { body, .. } => {
             env.push_scope();
+            consts.push_scope();
             for stmt in body {
-                execute(stmt, env, program)?;
+                execute(stmt, env, consts, program)?;
             }
             env.pop_scope();
+            consts.pop_scope();
             Ok(())
         }
 
@@ -75,17 +145,17 @@ fn execute(stmt: &Stmt, env: &mut Environment, program: &Program) -> Exec<()> {
             then_branch,
             else_branch,
         } => {
-            if evaluate(condition, env, program)?.is_truthy() {
-                execute(then_branch, env, program)?;
+            if evaluate(condition, env, consts, program)?.is_truthy() {
+                execute(then_branch, env, consts, program)?;
             } else if let Some(alt) = else_branch {
-                execute(alt, env, program)?;
+                execute(alt, env, consts, program)?;
             }
             Ok(())
         }
 
         Stmt::While { condition, body } => {
-            while evaluate(condition, env, program)?.is_truthy() {
-                execute(body, env, program)?;
+            while evaluate(condition, env, consts, program)?.is_truthy() {
+                execute(body, env, consts, program)?;
             }
             Ok(())
         }
@@ -98,12 +168,13 @@ fn execute(stmt: &Stmt, env: &mut Environment, program: &Program) -> Exec<()> {
                     name: name.clone(),
                 },
             );
+            consts.bind(name, false);
             Ok(())
         }
 
         Stmt::Return(value) => {
             let value = match value {
-                Some(expr) => evaluate(expr, env, program)?,
+                Some(expr) => evaluate(expr, env, consts, program)?,
                 None => Value::Nil,
             };
             Err(Flow::Return(value))
@@ -111,15 +182,30 @@ fn execute(stmt: &Stmt, env: &mut Environment, program: &Program) -> Exec<()> {
     }
 }
 
-fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value> {
+fn evaluate(
+    expr: &Expr,
+    env: &mut Environment,
+    consts: &mut Consts,
+    program: &Program,
+) -> Exec<Value> {
     match expr {
         Expr::Literal { value, .. } => Ok(value.clone()),
-        Expr::Grouping(inner) => evaluate(inner, env, program),
+        Expr::Grouping(inner) => evaluate(inner, env, consts, program),
 
         Expr::Variable { name, at } => read(env, name, *at),
 
         Expr::Assign { name, value, at } => {
-            let value = evaluate(value, env, program)?;
+            let value = evaluate(value, env, consts, program)?;
+            let constant = match at {
+                Resolved::Global => consts.is_const_global(&name.lexeme),
+                Resolved::Local { depth, .. } => consts.is_const_at(*depth, &name.lexeme),
+            };
+            if constant {
+                return Err(err(
+                    name.line,
+                    &format!("Cannot assign to constant '{}'.", name.lexeme),
+                ));
+            }
             let wrote = match at {
                 Resolved::Global => env.assign_global(&name.lexeme, value.clone()),
                 Resolved::Local { depth, .. } => {
@@ -134,7 +220,7 @@ fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value
         }
 
         Expr::Unary { op, right } => {
-            let value = evaluate(right, env, program)?;
+            let value = evaluate(right, env, consts, program)?;
             match op.kind {
                 TokenType::Bang => Ok(Value::Bool(!value.is_truthy())),
                 TokenType::Minus => match value {
@@ -146,8 +232,8 @@ fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value
         }
 
         Expr::Binary { left, op, right } => {
-            let l = evaluate(left, env, program)?;
-            let r = evaluate(right, env, program)?;
+            let l = evaluate(left, env, consts, program)?;
+            let r = evaluate(right, env, consts, program)?;
             match op.kind {
                 TokenType::Plus => match (l, r) {
                     (Value::Number(a), Value::Number(b)) => Ok(Value::Number(a + b)),
@@ -175,7 +261,7 @@ fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value
 
         // `and` / `or` yield one of their operands, not a boolean (spec 4.1).
         Expr::Logical { left, op, right } => {
-            let l = evaluate(left, env, program)?;
+            let l = evaluate(left, env, consts, program)?;
             if op.kind == TokenType::Or {
                 if l.is_truthy() {
                     return Ok(l);
@@ -183,19 +269,19 @@ fn evaluate(expr: &Expr, env: &mut Environment, program: &Program) -> Exec<Value
             } else if !l.is_truthy() {
                 return Ok(l);
             }
-            evaluate(right, env, program)
+            evaluate(right, env, consts, program)
         }
 
         Expr::Call {
             callee, paren, args, ..
         } => {
-            let callee = evaluate(callee, env, program)?;
+            let callee = evaluate(callee, env, consts, program)?;
             let mut values = Vec::new();
             for arg in args {
-                values.push(evaluate(arg, env, program)?);
+                values.push(evaluate(arg, env, consts, program)?);
             }
             match callee {
-                Value::Function { index, .. } => call(index, values, paren.line, env, program),
+                Value::Function { index, .. } => call(index, values, paren.line, env, consts, program),
                 _ => Err(err(paren.line, "This value is not a function.")),
             }
         }
@@ -222,6 +308,7 @@ fn call(
     args: Vec<Value>,
     line: usize,
     env: &mut Environment,
+    consts: &mut Consts,
     program: &Program,
 ) -> Exec<Value> {
     let arity = program.functions[index].params.len();
@@ -237,25 +324,30 @@ fn call(
 
     let params = program.functions[index].params.clone();
     env.push_frame();
+    consts.push_frame();
     for (name, value) in params.iter().zip(args) {
         env.declare(name, value);
+        consts.bind(name, false);
     }
 
     for stmt in &program.functions[index].body {
-        match execute(stmt, env, program) {
+        match execute(stmt, env, consts, program) {
             Ok(()) => {}
             Err(Flow::Return(value)) => {
                 env.pop_frame();
+                consts.pop_frame();
                 return Ok(value);
             }
             Err(Flow::Error(error)) => {
                 env.pop_frame();
+                consts.pop_frame();
                 return Err(Flow::Error(error));
             }
         }
     }
 
     env.pop_frame();
+    consts.pop_frame();
     Ok(Value::Nil)
 }
 

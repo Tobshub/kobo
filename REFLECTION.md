@@ -8,7 +8,7 @@
 
 Returning `true` or `false` would still pass a test that only used the result as an `if` condition, because the truthiness would match. It would fail `tests/phase-3/valid/logical.kobo`, which prints the operand. `nil or "fallback"` must print `fallback`, and `false and 1` must print `false`.
 
-That return was introduced in `a5a3838` as `return Ok(l);` at `src/interpreter.rs:181`. In `7b95534` it is still `return Ok(l);`, now at `src/interpreter.rs:267`. The edit in between only added the const-scope argument to the call above it.
+That return was introduced in `26b62aa` as `return Ok(l);` at `src/interpreter.rs:181`. In `3235010` it is still `return Ok(l);`, now at `src/interpreter.rs:267`. The edit in between only added the const-scope argument to the call above it.
 
 ## 2. Slots, and one `Pop` too few
 
@@ -20,4 +20,4 @@ If `end_scope` emits one `Pop` too few, the dying local stays on the stack and e
 
 My matriculation number 24120111038 ends in 8, so the extension is `const`. The keyword is `src/token.rs:44` and `src/token.rs:113`. `src/parser.rs:128-136` parses `const name = expression ;`. A missing initialiser is the parse error `Expect initialiser after constant name.` The flag is `src/ast.rs:105`, printed at `src/printer.rs:26`. The tree walk marks the name at `src/interpreter.rs:128` and, when the assignment runs, reports `Cannot assign to constant 'name'.` at `src/interpreter.rs:203-207`. The right-hand side runs first (`src/interpreter.rs:198`). A later `var` or `fun` in that scope clears the mark.
 
-The bytecode path was harder. A local is only a slot, so the compiler emits `MarkConst` or `DefineConst` at `src/compiler.rs:294-310` (opcodes `src/chunk.rs:28` and `src/chunk.rs:37`; `src/disassembler.rs:39-47` prints them). The VM refuses the store at `src/vm.rs:93-116`. A plain `SetLocal` would write through the constant. A block ends with `Pop`, which does not free the mark, so a `var` that reuses the slot must emit `MarkMutable` (`src/compiler.rs:299`, `src/vm.rs:125`) or the next assignment is rejected. The virtual machine did not get `const` for free. The behaviour landed in `7b95534`; the tests are `7fab1d1`.
+The bytecode path was harder. A local is only a slot, so the compiler emits `MarkConst` or `DefineConst` at `src/compiler.rs:294-310` (opcodes `src/chunk.rs:28` and `src/chunk.rs:37`; `src/disassembler.rs:39-47` prints them). The VM refuses the store at `src/vm.rs:93-116`. A plain `SetLocal` would write through the constant. A block ends with `Pop`, which does not free the mark, so a `var` that reuses the slot must emit `MarkMutable` (`src/compiler.rs:299`, `src/vm.rs:125`) or the next assignment is rejected. The virtual machine did not get `const` for free. The behaviour landed in `3235010`; the tests are `08a3e4a`.
